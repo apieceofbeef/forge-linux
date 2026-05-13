@@ -137,7 +137,7 @@ man-db
 man-pages
 mc
 nano
-pacman-contrib                        # checkupdates, paccache, pacdiff, ...
+pacman-contrib
 pkgfile
 ranger
 reflector
