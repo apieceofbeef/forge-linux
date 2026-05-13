@@ -207,6 +207,28 @@ EOF
 
     if build_yay; then
         log "yay installed successfully"
+
+        ##############################################################
+        # AUR packages required by FORGE (not in [core]/[extra]/AUR-
+        # tagged in our manifest).  yay is invoked as the unprivileged
+        # forge user; the temporary sudoers rule above lets it call
+        # pacman non-interactively.  --needed avoids reinstalling.
+        ##############################################################
+        log "Installing AUR packages via yay"
+        if ! sudo -u forge yay -S --noconfirm --needed \
+                ghostty greetd greetd-tuigreet nwg-look swww \
+                wlogout python-pywal mise wlroots; then
+            log "WARNING: yay -S for AUR packages failed (some may be unavailable)"
+        fi
+
+        # Enable greetd now that it has been pulled from AUR.  This is
+        # idempotent -- the systemd-list-unit-files guard in section 4
+        # also enables it if greetd was already present, but at that
+        # point of the script greetd is not yet installed.
+        if systemctl list-unit-files greetd.service >/dev/null 2>&1; then
+            systemctl enable greetd.service || \
+                log "WARNING: could not enable greetd.service"
+        fi
     else
         log "WARNING: yay build failed -- continuing without it"
     fi

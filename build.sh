@@ -34,7 +34,7 @@ REQUIRED_CMDS=(mkarchiso pacstrap mksquashfs xorriso mkfs.fat mformat grub-mkres
 # Pretty printing
 ###############################################################################
 c_reset=$'\033[0m'; c_red=$'\033[1;31m'; c_grn=$'\033[1;32m'
-c_ylw=$'\033[1;33m'; c_blu=$'\033[1;34m'; c_bld=$'\033[1m'
+c_ylw=$'\033[1;33m'; c_blu=$'\033[1;34m'
 
 info() { printf '%s[forge]%s %s\n'  "$c_blu" "$c_reset" "$*"; }
 ok()   { printf '%s[forge]%s %s\n'  "$c_grn" "$c_reset" "$*"; }

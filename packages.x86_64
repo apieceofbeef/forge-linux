@@ -18,7 +18,6 @@ base
 base-devel
 intel-ucode
 linux-firmware
-linux-firmware-marvell                # VERIFY [extra] firmware drop-in
 linux-zen
 linux-zen-headers
 mkinitcpio
@@ -33,7 +32,6 @@ archinstall
 edk2-shell
 efibootmgr
 grub
-limine                                # VERIFY [extra] alt bootloader
 memtest86+
 memtest86+-efi
 syslinux
@@ -63,7 +61,6 @@ xfsprogs
 # Networking stack
 ##############################################################################
 bind
-bridge-utils
 broadcom-wl
 dhclient
 dhcpcd
@@ -72,7 +69,7 @@ dmraid
 dnsmasq
 ethtool
 fsarchiver
-gnu-netcat
+openbsd-netcat
 iw
 iwd
 modemmanager
@@ -173,9 +170,6 @@ brightnessctl
 cliphist
 dunst
 foot
-ghostty                               # VERIFY [extra] (added 2024)
-greetd                                # VERIFY [extra]
-greetd-tuigreet                       # VERIFY [extra]; falls back to `tuigreet`
 grim
 hypridle
 hyprland
@@ -185,7 +179,6 @@ hyprpicker
 hyprshot
 mako
 network-manager-applet
-nwg-look                              # VERIFY [extra] GTK theme picker
 polkit
 polkit-kde-agent
 qt5-wayland
@@ -196,13 +189,10 @@ swappy
 swaybg
 swayidle
 swaylock
-swww                                  # VERIFY [extra]
 waybar
 wf-recorder
 wireplumber
 wl-clipboard
-wlogout
-wlroots
 xdg-desktop-portal
 xdg-desktop-portal-hyprland
 xdg-user-dirs
@@ -243,11 +233,6 @@ playerctl
 sof-firmware
 
 ##############################################################################
-# Theming / look-and-feel
-##############################################################################
-python-pywal                          # VERIFY [extra] (some mirrors still ship `pywal`)
-
-##############################################################################
 # Developer toolchains and runtimes
 ##############################################################################
 clang
@@ -262,7 +247,6 @@ lldb
 llvm
 make
 meson
-mise                                  # VERIFY [extra] (added 2024)
 nodejs
 npm
 pkgconf
