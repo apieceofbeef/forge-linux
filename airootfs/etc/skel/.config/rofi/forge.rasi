@@ -1,0 +1,8 @@
+/*
+ * ~/.config/rofi/forge.rasi
+ *
+ * Tiny shim so that Hyprland keybinds can refer to a stable theme name
+ * (`-theme ~/.config/rofi/forge.rasi`) without having to know that the
+ * real config lives in config.rasi.
+ */
+@import "~/.config/rofi/config.rasi"

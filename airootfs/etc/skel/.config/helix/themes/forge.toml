@@ -1,0 +1,151 @@
+# ~/.config/helix/themes/forge.toml
+#
+# FORGE Linux -- the editor theme that matches Hyprland / Waybar / Ghostty.
+# Palette: amber, green, blue, coral, lime against a near-black background.
+
+# ----------------------------------------------------------------- syntax ---
+"keyword"                 = { fg = "amber",      modifiers = ["bold"] }
+"keyword.control"         = { fg = "amber",      modifiers = ["bold"] }
+"keyword.control.return"  = { fg = "amber-soft", modifiers = ["bold"] }
+"keyword.control.import"  = { fg = "amber-soft" }
+"keyword.control.conditional" = { fg = "amber",  modifiers = ["bold"] }
+"keyword.control.repeat"  = { fg = "amber",      modifiers = ["bold"] }
+"keyword.operator"        = "amber-soft"
+"keyword.directive"       = "amber-soft"
+"keyword.function"        = { fg = "amber",      modifiers = ["bold"] }
+"keyword.storage"         = { fg = "amber" }
+"keyword.storage.type"    = { fg = "blue" }
+"keyword.storage.modifier" = "amber-soft"
+
+"function"                = { fg = "green",      modifiers = ["bold"] }
+"function.builtin"        = { fg = "green-soft" }
+"function.method"         = "green"
+"function.macro"          = "lime"
+"function.special"        = "lime"
+
+"type"                    = { fg = "blue",       modifiers = ["italic"] }
+"type.builtin"            = { fg = "blue" }
+"type.parameter"          = { fg = "sky" }
+"type.enum.variant"       = "coral"
+
+"constant"                = "coral"
+"constant.builtin"        = { fg = "coral",      modifiers = ["bold"] }
+"constant.builtin.boolean" = { fg = "coral",     modifiers = ["bold"] }
+"constant.numeric"        = "coral"
+"constant.character"      = "lime"
+"constant.character.escape" = "amber-soft"
+
+"string"                  = "lime"
+"string.regexp"           = "amber-soft"
+"string.special"          = "amber-soft"
+
+"comment"                 = { fg = "muted",      modifiers = ["italic"] }
+"comment.line"            = { fg = "muted",      modifiers = ["italic"] }
+"comment.block.documentation" = { fg = "muted-2", modifiers = ["italic"] }
+
+"variable"                = "fg"
+"variable.builtin"        = { fg = "coral",      modifiers = ["italic"] }
+"variable.parameter"      = { fg = "sky",        modifiers = ["italic"] }
+"variable.other.member"   = "fg"
+
+"label"                   = "amber"
+"punctuation"             = "muted"
+"punctuation.delimiter"   = "muted"
+"punctuation.bracket"     = "fg-dim"
+"punctuation.special"     = "amber"
+
+"operator"                = "amber-soft"
+"attribute"               = "amber-soft"
+"namespace"               = { fg = "blue",       modifiers = ["italic"] }
+
+"tag"                     = "amber"
+"tag.builtin"             = "amber"
+"tag.attribute"           = "green"
+
+"markup.heading"          = { fg = "amber",      modifiers = ["bold"] }
+"markup.heading.1"        = { fg = "amber",      modifiers = ["bold"] }
+"markup.heading.2"        = { fg = "amber-soft", modifiers = ["bold"] }
+"markup.heading.3"        = { fg = "green",      modifiers = ["bold"] }
+"markup.list"             = "amber-soft"
+"markup.bold"             = { modifiers = ["bold"] }
+"markup.italic"           = { modifiers = ["italic"] }
+"markup.strikethrough"    = { modifiers = ["crossed_out"] }
+"markup.link.url"         = { fg = "blue",       modifiers = ["underlined"] }
+"markup.link.text"        = "green"
+"markup.quote"            = { fg = "muted",      modifiers = ["italic"] }
+"markup.raw"              = "lime"
+"markup.raw.inline"       = "lime"
+
+"diff.plus"               = "green"
+"diff.minus"              = "red"
+"diff.delta"              = "amber"
+
+# ----------------------------------------------------------------- ui -------
+"ui.background"           = { bg = "bg" }
+"ui.background.separator" = "muted-2"
+"ui.cursor"               = { fg = "bg", bg = "amber", modifiers = ["reversed"] }
+"ui.cursor.match"         = { fg = "amber", modifiers = ["bold", "underlined"] }
+"ui.cursor.primary"       = { fg = "bg", bg = "amber" }
+"ui.cursor.insert"        = { fg = "bg", bg = "green" }
+"ui.cursor.select"        = { fg = "bg", bg = "coral" }
+"ui.cursorline.primary"   = { bg = "bg-alt" }
+"ui.cursorcolumn.primary" = { bg = "bg-alt" }
+"ui.selection"            = { bg = "bg-elevated" }
+"ui.selection.primary"    = { bg = "bg-elevated" }
+"ui.linenr"               = "muted"
+"ui.linenr.selected"      = { fg = "amber",     modifiers = ["bold"] }
+"ui.statusline"           = { fg = "fg",  bg = "bg-alt" }
+"ui.statusline.inactive"  = { fg = "muted", bg = "bg" }
+"ui.statusline.normal"    = { fg = "bg",  bg = "amber",      modifiers = ["bold"] }
+"ui.statusline.insert"    = { fg = "bg",  bg = "green",      modifiers = ["bold"] }
+"ui.statusline.select"    = { fg = "bg",  bg = "coral",      modifiers = ["bold"] }
+"ui.bufferline"           = { fg = "muted", bg = "bg" }
+"ui.bufferline.active"    = { fg = "amber", bg = "bg-alt",   modifiers = ["bold"] }
+"ui.bufferline.background" = { bg = "bg" }
+"ui.popup"                = { bg = "bg-alt" }
+"ui.window"               = { bg = "bg-alt" }
+"ui.help"                 = { fg = "fg", bg = "bg-alt" }
+"ui.text"                 = "fg"
+"ui.text.focus"           = { fg = "fg", modifiers = ["bold"] }
+"ui.menu"                 = { fg = "fg", bg = "bg-alt" }
+"ui.menu.selected"        = { fg = "bg", bg = "amber",      modifiers = ["bold"] }
+"ui.virtual.ruler"        = { bg = "bg-alt" }
+"ui.virtual.indent-guide" = "muted-2"
+"ui.virtual.inlay-hint"   = { fg = "muted", modifiers = ["italic"] }
+"ui.virtual.whitespace"   = "muted-2"
+"ui.virtual.jump-label"   = { fg = "amber", modifiers = ["bold"] }
+"ui.gutter"               = { bg = "bg" }
+"ui.highlight"            = { bg = "bg-elevated" }
+
+"diagnostic.error"        = { underline = { color = "red",    style = "curl" } }
+"diagnostic.warning"      = { underline = { color = "yellow", style = "curl" } }
+"diagnostic.info"         = { underline = { color = "blue",   style = "curl" } }
+"diagnostic.hint"         = { underline = { color = "green",  style = "curl" } }
+"diagnostic.unnecessary"  = { modifiers = ["dim"] }
+"diagnostic.deprecated"   = { modifiers = ["crossed_out"] }
+
+"error"   = "red"
+"warning" = "yellow"
+"info"    = "blue"
+"hint"    = "green"
+
+# ----------------------------------------------------------------- palette --
+[palette]
+bg          = "#0d0e10"
+bg-alt      = "#15171b"
+bg-elevated = "#1c1f25"
+fg          = "#e8e6df"
+fg-dim      = "#cbd5e1"
+muted       = "#94a3b8"
+muted-2     = "#475569"
+
+amber       = "#f59e0b"
+amber-soft  = "#f97316"
+green       = "#22c55e"
+green-soft  = "#16a34a"
+lime        = "#a3e635"
+blue        = "#3b82f6"
+sky         = "#38bdf8"
+coral       = "#f87171"
+red         = "#ef4444"
+yellow      = "#eab308"

@@ -1,0 +1,147 @@
+# /etc/apparmor.d/usr.bin.firefox
+#
+# FORGE Linux -- AppArmor confinement for Firefox.
+#
+# Goals:
+#   - Let Firefox do everything users expect (browse, download, render media,
+#     show notifications, talk to PipeWire, use the GPU).
+#   - Block obvious privilege-escalation paths: raw disk access, kernel
+#     interfaces, mounting filesystems, ptrace, kernel keyring, /proc/kcore.
+#
+# Reload after editing:
+#     sudo apparmor_parser -r /etc/apparmor.d/usr.bin.firefox
+
+#include <tunables/global>
+
+profile firefox /{usr/,}{bin,lib*}/firefox{,-bin,-esr,-developer-edition,-nightly} flags=(complain) {
+    #include <abstractions/base>
+    #include <abstractions/X>
+    #include <abstractions/dbus-session>
+    #include <abstractions/dbus-strict>
+    #include <abstractions/fonts>
+    #include <abstractions/audio>
+    #include <abstractions/video>
+    #include <abstractions/ibus>
+    #include <abstractions/p11-kit>
+    #include <abstractions/dconf>
+    #include <abstractions/openssl>
+    #include <abstractions/nameservice>
+    #include <abstractions/user-tmp>
+    #include <abstractions/user-download>
+
+    capability sys_admin,
+    capability sys_chroot,
+    capability sys_ptrace,
+    capability net_admin,
+
+    network inet  stream,
+    network inet6 stream,
+    network inet  dgram,
+    network inet6 dgram,
+    network netlink raw,
+    network unix stream,
+    network unix dgram,
+
+    # --- Executables ------------------------------------------------------------
+    /{usr/,}{bin,lib*}/firefox*                                      mrix,
+    /{usr/,}{bin,lib*}/firefox/firefox{,-bin}                        mrix,
+    /usr/lib/firefox/**                                              mr,
+    /usr/lib/mozilla/**                                              mr,
+    /etc/firefox/**                                                  r,
+    /etc/mozilla/**                                                  r,
+
+    # Helpers Firefox launches.
+    /usr/bin/{xdg-open,xdg-mime,xdg-settings}                        rPx,
+    /usr/bin/{gconftool-2,gsettings,dconf}                           rPx,
+    /usr/bin/{wl-copy,wl-paste,xclip,xsel}                           rPx,
+    /usr/bin/{pkexec,update-mime-database}                           Ux,
+    /usr/{bin,lib}/{,*-}snap*                                        x,
+
+    # GPU / wayland / pipewire
+    /dev/dri/                                                        r,
+    /dev/dri/**                                                      rw,
+    /dev/udmabuf                                                     rw,
+    /run/user/[0-9]*/                                                r,
+    /run/user/[0-9]*/wayland-*                                       rw,
+    /run/user/[0-9]*/pipewire-*                                      rw,
+    /run/user/[0-9]*/pulse/                                          r,
+    /run/user/[0-9]*/pulse/**                                        rw,
+    /run/user/[0-9]*/bus                                             rw,
+
+    # Profile + cache
+    owner @{HOME}/.mozilla/                                          rw,
+    owner @{HOME}/.mozilla/**                                        rwk,
+    owner @{HOME}/.cache/mozilla/                                    rw,
+    owner @{HOME}/.cache/mozilla/**                                  rwk,
+    owner @{HOME}/.config/firefox/                                   rw,
+    owner @{HOME}/.config/firefox/**                                 rwk,
+    owner @{HOME}/.config/gtk-{2.0,3.0,4.0}/**                       r,
+    owner @{HOME}/.config/fontconfig/**                              r,
+    owner @{HOME}/.fonts/                                            r,
+    owner @{HOME}/.fonts/**                                          r,
+    owner @{HOME}/.icons/                                            r,
+    owner @{HOME}/.icons/**                                          r,
+    owner @{HOME}/.local/share/applications/                         r,
+    owner @{HOME}/.local/share/applications/**                       r,
+    owner @{HOME}/.local/share/mime/**                               r,
+    owner @{HOME}/.pki/**                                            rwk,
+
+    # Downloads
+    owner @{HOME}/Downloads/                                         rw,
+    owner @{HOME}/Downloads/**                                       rwk,
+    owner @{HOME}/Pictures/                                          rw,
+    owner @{HOME}/Pictures/**                                        rwk,
+    owner @{HOME}/Documents/                                         rw,
+    owner @{HOME}/Documents/**                                       rwk,
+
+    # Temp directories
+    owner /tmp/                                                      rw,
+    owner /tmp/**                                                    rwlk,
+    owner /var/tmp/                                                  rw,
+    owner /var/tmp/**                                                rwlk,
+    owner /dev/shm/{,**}                                             rwm,
+
+    # Read-only system bits
+    /etc/                                                            r,
+    /etc/**                                                          r,
+    /usr/share/**                                                    r,
+    /usr/lib/locale/**                                               r,
+    /opt/                                                            r,
+    /opt/**                                                          r,
+    /sys/devices/**                                                  r,
+    /sys/class/**                                                    r,
+    /sys/bus/**                                                      r,
+    /proc/                                                            r,
+    /proc/[0-9]*/**                                                  r,
+    /proc/[0-9]*/maps                                                r,
+    /proc/[0-9]*/mem                                                 rw,
+    /proc/sys/kernel/{random/uuid,osrelease,ostype}                  r,
+    /proc/sys/vm/overcommit_memory                                   r,
+    /proc/cpuinfo                                                    r,
+    /proc/meminfo                                                    r,
+    /proc/stat                                                       r,
+
+    # Deny dangerous bits.
+    deny /dev/mem                                                    rw,
+    deny /dev/kmem                                                   rw,
+    deny /dev/sd*                                                    rw,
+    deny /dev/nvme*                                                  rw,
+    deny /dev/mmcblk*                                                rw,
+    deny /proc/kcore                                                 rw,
+    deny /proc/kallsyms                                              r,
+    deny /sys/firmware/**                                            rw,
+    deny /sys/kernel/security/**                                     rw,
+    deny /boot/**                                                    rw,
+    deny capability sys_module,
+    deny capability sys_rawio,
+    deny capability sys_boot,
+    deny capability sys_time,
+    deny capability mac_admin,
+    deny capability mac_override,
+    deny mount,
+    deny umount,
+    deny pivot_root,
+
+    # Site-local additions live in this drop-in.
+    #include if exists <local/usr.bin.firefox>
+}

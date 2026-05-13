@@ -1,0 +1,235 @@
+/*
+ * ~/.config/rofi/config.rasi
+ *
+ * FORGE Linux -- default Rofi configuration and theme.
+ *
+ * Invoked by Hyprland keybinds:
+ *     rofi -show drun  -theme ~/.config/rofi/forge.rasi
+ *     rofi -show run   -theme ~/.config/rofi/forge.rasi
+ *
+ * The forge.rasi shim simply re-imports this file, so both names work.
+ */
+
+configuration {
+    modes:                  "drun,run,window,ssh,filebrowser,calc,emoji";
+    font:                   "JetBrainsMono Nerd Font 12";
+
+    show-icons:             true;
+    icon-theme:             "Adwaita";
+    drun-display-format:    "{icon} {name}";
+    display-drun:           "  Apps";
+    display-run:            "  Run";
+    display-window:         "  Windows";
+    display-ssh:            "  SSH";
+    display-filebrowser:    "  Files";
+
+    matching:               "fuzzy";
+    sort:                   true;
+    sorting-method:         "fzf";
+    case-sensitive:         false;
+    cycle:                  true;
+    sidebar-mode:           false;
+    terminal:               "ghostty";
+    ssh-command:            "{terminal} -e ssh {host}";
+    run-command:            "{cmd}";
+    run-shell-command:      "{terminal} -e {cmd}";
+
+    me-select-entry:        "MousePrimary";
+    me-accept-entry:        "MouseDPrimary";
+    hover-select:           true;
+
+    /* enable plugins where available */
+    combi-modes:            "drun,run,window";
+    combi-display-format:   "{mode}\t{text}";
+
+    /* CSV column widths for the file browser */
+    filebrowser {
+        directories-first:  true;
+        sorting-method:     "name";
+    }
+}
+
+/* ------------------------------------------------------------------- palette */
+* {
+    bg              : #0d0e10;
+    bg-alt          : #15171b;
+    bg-elevated     : #1c1f25;
+    fg              : #e8e6df;
+    fg-dim          : #94a3b8;
+    amber           : #f59e0b;
+    amber-soft      : #f97316;
+    green           : #22c55e;
+    red             : #ef4444;
+    blue            : #3b82f6;
+    transparent     : rgba(0,0,0,0);
+
+    background-color: transparent;
+    text-color      : @fg;
+    font            : "JetBrainsMono Nerd Font 12";
+}
+
+/* ------------------------------------------------------------------- window */
+window {
+    transparency:       "real";
+    location:           center;
+    anchor:             center;
+    fullscreen:         false;
+    width:              600px;
+    x-offset:           0px;
+    y-offset:           0px;
+    enabled:            true;
+    padding:            0;
+    border:             1px solid;
+    border-color:       @amber;
+    border-radius:      12px;
+    background-color:   @bg;
+    cursor:             default;
+}
+
+mainbox {
+    enabled:            true;
+    children:           [ "inputbar", "message", "listview", "mode-switcher" ];
+    padding:            14px;
+    spacing:            12px;
+    background-color:   transparent;
+}
+
+/* ------------------------------------------------------------------- input */
+inputbar {
+    enabled:            true;
+    spacing:            10px;
+    padding:            10px 14px;
+    background-color:   @bg-alt;
+    border-radius:      10px;
+    border:             1px solid;
+    border-color:       @bg-elevated;
+    children:           [ "prompt", "entry" ];
+}
+
+prompt {
+    text-color:         @amber;
+    font:               "JetBrainsMono Nerd Font Bold 12";
+}
+
+entry {
+    enabled:            true;
+    background-color:   transparent;
+    text-color:         @fg;
+    cursor:             text;
+    placeholder:        "Type to search…";
+    placeholder-color:  @fg-dim;
+}
+
+/* ------------------------------------------------------------------- list */
+listview {
+    enabled:            true;
+    columns:            1;
+    lines:              10;
+    cycle:              true;
+    dynamic:            true;
+    scrollbar:          false;
+    layout:             vertical;
+    reverse:            false;
+    fixed-height:       true;
+    fixed-columns:      true;
+    spacing:            4px;
+    background-color:   transparent;
+    cursor:             default;
+}
+
+element {
+    enabled:            true;
+    spacing:            10px;
+    padding:            8px 12px;
+    border-radius:      8px;
+    cursor:             pointer;
+    background-color:   transparent;
+    text-color:         @fg;
+}
+
+element normal.normal {
+    background-color:   transparent;
+    text-color:         @fg;
+}
+element normal.urgent {
+    background-color:   transparent;
+    text-color:         @red;
+}
+element normal.active {
+    background-color:   transparent;
+    text-color:         @green;
+}
+element selected.normal {
+    background-color:   @amber;
+    text-color:         @bg;
+}
+element selected.urgent {
+    background-color:   @red;
+    text-color:         @bg;
+}
+element selected.active {
+    background-color:   @green;
+    text-color:         @bg;
+}
+element alternate.normal {
+    background-color:   transparent;
+    text-color:         @fg;
+}
+
+element-icon {
+    background-color:   transparent;
+    size:               1.2em;
+    cursor:             inherit;
+    text-color:         inherit;
+}
+
+element-text {
+    background-color:   transparent;
+    text-color:         inherit;
+    cursor:             inherit;
+    vertical-align:     0.5;
+    horizontal-align:   0.0;
+}
+
+/* ------------------------------------------------------------------- message */
+message {
+    background-color:   transparent;
+    border:             0;
+    border-radius:      8px;
+    border-color:       @amber;
+    padding:            6px 12px;
+}
+
+textbox {
+    background-color:   @bg-alt;
+    text-color:         @fg;
+    padding:            6px 12px;
+    border-radius:      8px;
+}
+
+error-message {
+    background-color:   @red;
+    text-color:         @bg;
+    border-radius:      8px;
+    padding:            8px 12px;
+}
+
+/* ------------------------------------------------------------------- modes */
+mode-switcher {
+    enabled:            true;
+    spacing:            6px;
+    background-color:   transparent;
+}
+
+button {
+    padding:            6px 12px;
+    background-color:   @bg-alt;
+    text-color:         @fg-dim;
+    cursor:             pointer;
+    border-radius:      8px;
+}
+
+button selected {
+    background-color:   @amber;
+    text-color:         @bg;
+}

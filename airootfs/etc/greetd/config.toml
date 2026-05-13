@@ -1,0 +1,41 @@
+# /etc/greetd/config.toml
+#
+# FORGE Linux -- greetd configuration.
+#
+# greetd is the login daemon that runs on the system VT.  We use tuigreet
+# (a TUI greeter) configured to launch Hyprland with the FORGE theme.
+#
+# Reference: man 5 greetd.conf, https://man.sr.ht/~kennylevinsen/greetd/
+
+[terminal]
+# Run tuigreet on virtual terminal 1.  This must match the VT number that
+# `greetd.service` is wired to (it defaults to vt1 on Arch).
+vt = 1
+
+# Switch to the greeter VT automatically on (re)spawn.
+switch = true
+
+[default_session]
+# tuigreet flags:
+#   --time                Show current time in the greeter
+#   --remember            Remember the last-used username
+#   --remember-session    Remember the last selected session
+#   --asterisks           Mask passwords with '*' instead of hiding them
+#   --user-menu           Allow choosing among local user accounts
+#   --cmd Hyprland        Default session command if user hits Enter on session prompt
+#   --theme               FORGE colour scheme (border/text/prompt/action/button/container/input)
+#   --greeting            Top banner text
+command = """tuigreet \
+    --time \
+    --remember \
+    --remember-session \
+    --asterisks \
+    --user-menu \
+    --greeting 'Welcome to FORGE Linux' \
+    --cmd Hyprland \
+    --theme 'border=amber;text=white;prompt=amber;action=green;button=amber;container=#111318;input=#1e2020'"""
+user = "greeter"
+
+# An (empty) [initial_session] block is intentionally absent: we never want
+# greetd to auto-login a user on a developer workstation.  Add one below if
+# you ever need kiosk-style auto-login.

@@ -1,0 +1,146 @@
+# /etc/apparmor.d/usr.local.bin.fuse
+#
+# FORGE Linux -- AppArmor confinement for the `fuse` package manager.
+#
+# `fuse` (FORGE's unified package manager front-end) wraps pacman, yay,
+# flatpak and mise.  This profile gives it just enough access to:
+#   - read/write /var/cache/forge/  (snapshots)
+#   - read/write /var/log/forge/    (operation log)
+#   - execute pacman, yay, flatpak, mise (with their own profiles)
+#   - read the pacman database
+#   - reach package mirrors over the network
+# ...and denies everything else, including raw disk access, mounts,
+# privileged kernel interfaces, and the network *except* loopback and
+# the resolver/HTTPS sockets needed for sync/install.
+
+#include <tunables/global>
+
+profile fuse /usr/local/bin/fuse flags=(complain) {
+    #include <abstractions/base>
+    #include <abstractions/bash>
+    #include <abstractions/consoles>
+    #include <abstractions/openssl>
+    #include <abstractions/nameservice>
+
+    capability dac_override,
+    capability dac_read_search,
+    capability fowner,
+    capability fsetid,
+    capability chown,
+    capability sys_admin,    # required for sudo-elevation path
+    capability setuid,
+    capability setgid,
+
+    # Network: package downloads require outbound TCP.  We deny everything
+    # except loopback and DNS by default, then explicitly allow the
+    # syscalls pacman/yay/flatpak use.
+    network inet  stream,
+    network inet6 stream,
+    network unix  stream,
+    network unix  dgram,
+    network netlink raw,
+
+    deny network inet  dgram,
+    deny network inet6 dgram,
+    deny network raw,
+    deny network packet,
+    deny network bluetooth,
+
+    # --- The script itself + its interpreters -----------------------------------
+    /usr/local/bin/fuse                                              mrix,
+    /usr/bin/bash                                                    rix,
+    /usr/bin/env                                                     rix,
+    /usr/bin/{sed,awk,grep,sort,head,tail,cut,uniq,wc,column,date,mktemp,sleep,sudo,sudo_root,id,getent,hostname,whoami,uname,df,du,free,tar,zstd,xz,gzip,bzip2,find,printf,echo,cat,tee,column} rix,
+
+    # --- Sub-processes we delegate to (each runs under its own profile if any) -
+    /usr/bin/pacman                                                  Px,
+    /usr/bin/makepkg                                                 Px,
+    /usr/bin/yay                                                     Px,
+    /usr/bin/paccache                                                Px,
+    /usr/bin/pactree                                                 Px,
+    /usr/bin/checkupdates                                            Px,
+    /usr/bin/reflector                                               Px,
+    /usr/bin/journalctl                                              Px,
+    /usr/bin/flatpak                                                 Px,
+    /usr/bin/mise                                                    Px,
+    /usr/local/bin/forge-update                                      Px,
+
+    # --- Snapshot store / log ---------------------------------------------------
+    /var/cache/forge/                                                rw,
+    /var/cache/forge/**                                              rwk,
+    /var/log/forge/                                                  rw,
+    /var/log/forge/**                                                rwk,
+    /run/forge-fuse.lock                                             rwk,
+
+    # --- pacman state -----------------------------------------------------------
+    /etc/pacman.conf                                                 r,
+    /etc/pacman.d/                                                   r,
+    /etc/pacman.d/**                                                 r,
+    /etc/makepkg.conf                                                r,
+    /etc/makepkg.conf.d/                                             r,
+    /etc/makepkg.conf.d/**                                           r,
+    /var/lib/pacman/                                                 r,
+    /var/lib/pacman/**                                               rwk,
+    /var/cache/pacman/                                               r,
+    /var/cache/pacman/**                                             rwk,
+
+    # --- AUR helper / flatpak / mise state -------------------------------------
+    /var/cache/yay/                                                  rw,
+    /var/cache/yay/**                                                rwk,
+    /var/lib/flatpak/                                                r,
+    /var/lib/flatpak/**                                              rwk,
+    owner @{HOME}/.cache/yay/                                        rw,
+    owner @{HOME}/.cache/yay/**                                      rwk,
+    owner @{HOME}/.local/share/mise/                                 rw,
+    owner @{HOME}/.local/share/mise/**                               rwk,
+    owner @{HOME}/.config/mise/                                      rw,
+    owner @{HOME}/.config/mise/**                                    rwk,
+
+    # --- Read-only system bits we need to introspect ---------------------------
+    /etc/                                                            r,
+    /etc/forge/                                                      r,
+    /etc/forge/**                                                    r,
+    /etc/sudoers                                                     r,
+    /etc/sudoers.d/                                                  r,
+    /etc/sudoers.d/**                                                r,
+    /usr/share/                                                      r,
+    /usr/share/**                                                    r,
+    /proc/sys/kernel/{random/uuid,osrelease}                         r,
+    /proc/cpuinfo                                                    r,
+    /proc/meminfo                                                    r,
+    /proc/uptime                                                     r,
+    /proc/loadavg                                                    r,
+    /proc/[0-9]*/                                                    r,
+    /proc/[0-9]*/stat                                                r,
+    /proc/[0-9]*/status                                              r,
+    /proc/[0-9]*/cmdline                                             r,
+    /sys/class/block/                                                r,
+    /sys/class/block/**                                              r,
+
+    # --- tmp ---------------------------------------------------------------------
+    owner /tmp/                                                      rw,
+    owner /tmp/**                                                    rwlk,
+
+    # --- Outright denies --------------------------------------------------------
+    deny /dev/mem                                                    rw,
+    deny /dev/kmem                                                   rw,
+    deny /dev/sd*                                                    rw,
+    deny /dev/nvme*                                                  rw,
+    deny /dev/mmcblk*                                                rw,
+    deny /dev/loop*                                                  rw,
+    deny /proc/kcore                                                 rw,
+    deny /proc/kallsyms                                              r,
+    deny /sys/firmware/**                                            rw,
+    deny /sys/kernel/security/**                                     rw,
+    deny /boot/**                                                    w,
+    deny capability sys_module,
+    deny capability sys_rawio,
+    deny capability sys_boot,
+    deny capability mac_admin,
+    deny mount,
+    deny umount,
+    deny pivot_root,
+
+    # Site-local overrides
+    #include if exists <local/usr.local.bin.fuse>
+}

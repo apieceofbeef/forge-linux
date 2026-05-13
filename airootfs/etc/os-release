@@ -1,0 +1,14 @@
+NAME="FORGE Linux"
+PRETTY_NAME="FORGE Linux"
+ID=forge
+ID_LIKE=arch
+BUILD_ID=rolling
+ANSI_COLOR="38;2;255;120;40"
+HOME_URL="https://forgelinux.org/"
+DOCUMENTATION_URL="https://forgelinux.org/docs"
+SUPPORT_URL="https://forgelinux.org/support"
+BUG_REPORT_URL="https://github.com/forge-linux/forge/issues"
+PRIVACY_POLICY_URL="https://forgelinux.org/privacy"
+LOGO=forge-linux
+VENDOR_NAME="FORGE Linux"
+VENDOR_URL="https://forgelinux.org/"

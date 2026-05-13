@@ -1,0 +1,105 @@
+## /boot/grub/themes/forge/theme.txt
+##
+## FORGE Linux -- GRUB2 theme.
+##
+## NOTE on `desktop-image`:
+##   We deliberately leave `desktop-image` empty and only set
+##   `desktop-color = "#0d0e10"` so GRUB renders cleanly with no PNG file
+##   present.  If you want a background, drop a 1920x1080 dark abstract
+##   grid at /boot/grub/themes/forge/background.png and uncomment the
+##   `desktop-image` line below.
+
+# ---------------------------------------------------------- canvas
+title-text:        ""
+desktop-color:     "#0d0e10"
+desktop-image:     ""
+# desktop-image:   "background.png"            # uncomment when you ship one
+
+# ---------------------------------------------------------- fonts (loaded from
+# /boot/grub/fonts/*.pf2 by grub-mkconfig at install time; install
+# `grub` + `terminus-font`; mkstandalone supports any *.pf2 file).
+terminal-font:     "JetBrains Mono Regular 14"
+title-font:        "JetBrains Mono Bold 24"
+message-font:      "JetBrains Mono Regular 14"
+
+# ---------------------------------------------------------- title bar
++ image {
+    top   = 6%
+    left  = 50%-300
+    width = 600
+    file  = "logo.png"
+}
++ label {
+    top   = 12%
+    left  = 0
+    width = 100%
+    align = "center"
+    font  = "JetBrains Mono Bold 24"
+    color = "#f59e0b"
+    text  = "FORGE Linux"
+}
++ label {
+    top   = 17%
+    left  = 0
+    width = 100%
+    align = "center"
+    font  = "JetBrains Mono Regular 12"
+    color = "#94a3b8"
+    text  = "Kernel: linux-zen   Wayland: Hyprland"
+}
+
+# ---------------------------------------------------------- boot menu
++ boot_menu {
+    top                          = 30%
+    left                         = 50%-300
+    width                        = 600
+    height                       = 50%
+
+    item_font                    = "JetBrains Mono Regular 14"
+    item_color                   = "#e8e6df"
+    selected_item_font           = "JetBrains Mono Bold 14"
+    selected_item_color          = "#0d0e10"
+
+    item_height                  = 36
+    item_padding                 = 12
+    item_spacing                 = 6
+    item_icon_space              = 10
+
+    selected_item_pixmap_style   = "select_*.png"
+    menu_pixmap_style            = "menu_*.png"
+
+    icon_width                   = 20
+    icon_height                  = 20
+}
+
+# ---------------------------------------------------------- progress bar
++ progress_bar {
+    id              = "__timeout__"
+    top             = 88%
+    left            = 50%-200
+    width           = 400
+    height          = 14
+
+    show_text       = true
+    text_color      = "#94a3b8"
+    text            = "Booting in @TIMEOUT_NORMAL_MESSAGE@…"
+    font            = "JetBrains Mono Regular 12"
+
+    bg_color        = "#15171b"
+    fg_color        = "#f59e0b"
+    border_color    = "#f59e0b"
+
+    bar_style       = "progress_bar_*.png"
+    highlight_style = "progress_highlight_*.png"
+}
+
+# ---------------------------------------------------------- help bar
++ label {
+    bottom  = 4%
+    left    = 0
+    width   = 100%
+    align   = "center"
+    font    = "JetBrains Mono Regular 12"
+    color   = "#94a3b8"
+    text    = "↑/↓ select   ⏎ boot   e edit   c command-line"
+}

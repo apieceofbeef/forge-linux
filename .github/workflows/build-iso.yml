@@ -1,0 +1,200 @@
+name: build-iso
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  workflow_dispatch:
+    inputs:
+      verbose:
+        description: 'Pass --verbose to mkarchiso'
+        required: false
+        default: 'false'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build FORGE Linux ISO
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    container:
+      image: archlinux:latest
+      options: --privileged
+
+    steps:
+      - name: Refresh keys and base toolchain
+        run: |
+          set -euxo pipefail
+          pacman-key --init
+          pacman-key --populate archlinux
+          pacman -Syu --noconfirm --needed \
+            base-devel git ca-certificates curl \
+            archiso arch-install-scripts squashfs-tools libisoburn \
+            dosfstools mtools grub edk2-shell \
+            qemu-base qemu-system-x86 edk2-ovmf
+
+      - name: Configure git safe.directory
+        run: git config --global --add safe.directory '*'
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify required profile files
+        run: |
+          set -euxo pipefail
+          for f in profiledef.sh packages.x86_64 pacman.conf \
+                   airootfs/root/customize_airootfs.sh \
+                   airootfs/etc/os-release \
+                   airootfs/etc/sysctl.d/99-forge.conf \
+                   airootfs/etc/systemd/zram-generator.conf \
+                   build.sh README.md; do
+            test -f "$f" || { echo "missing: $f" >&2; exit 1; }
+          done
+          bash -n profiledef.sh build.sh airootfs/root/customize_airootfs.sh \
+                  airootfs/usr/local/bin/fuse airootfs/usr/local/bin/forge-install \
+                  airootfs/usr/local/bin/forge-update
+
+      - name: Build ISO
+        id: build
+        env:
+          VERBOSE_FLAG: ${{ github.event.inputs.verbose == 'true' && '--verbose' || '' }}
+        run: |
+          set -euxo pipefail
+          chmod +x build.sh
+          ./build.sh --clean ${VERBOSE_FLAG}
+          iso_path="$(find out -maxdepth 1 -type f -name 'forge-linux-*.iso' | sort | tail -n1)"
+          test -n "$iso_path" || { echo "no ISO produced" >&2; exit 1; }
+          echo "iso_path=${iso_path}" >> "$GITHUB_OUTPUT"
+          echo "iso_name=$(basename "$iso_path")" >> "$GITHUB_OUTPUT"
+          iso_size_human="$(du -h "$iso_path" | awk '{print $1}')"
+          iso_size_bytes="$(stat -c%s "$iso_path")"
+          echo "iso_size_human=${iso_size_human}" >> "$GITHUB_OUTPUT"
+          echo "iso_size_bytes=${iso_size_bytes}"  >> "$GITHUB_OUTPUT"
+          sha256="$(sha256sum "$iso_path" | awk '{print $1}')"
+          echo "sha256=${sha256}" >> "$GITHUB_OUTPUT"
+          echo "${sha256}  $(basename "$iso_path")" > "${iso_path}.sha256"
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "## FORGE Linux ISO build"
+            echo
+            if [ -n "${{ steps.build.outputs.iso_path }}" ]; then
+              echo "| Field    | Value |"
+              echo "|----------|-------|"
+              echo "| File     | \`${{ steps.build.outputs.iso_name }}\` |"
+              echo "| Size     | ${{ steps.build.outputs.iso_size_human }} (${{ steps.build.outputs.iso_size_bytes }} bytes) |"
+              echo "| SHA-256  | \`${{ steps.build.outputs.sha256 }}\` |"
+              echo "| Commit   | \`${GITHUB_SHA}\` |"
+              echo "| Workflow | \`${GITHUB_WORKFLOW}\` / run \`${GITHUB_RUN_ID}\` |"
+            else
+              echo ":x: Build did not produce an ISO."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload ISO artifact
+        if: success() && steps.build.outputs.iso_path != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge-linux-iso-${{ github.sha }}
+          path: |
+            ${{ steps.build.outputs.iso_path }}
+            ${{ steps.build.outputs.iso_path }}.sha256
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+  lint:
+    name: Lint profile
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck + python deps
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends shellcheck
+
+      - name: shellcheck
+        run: |
+          set -euo pipefail
+          shellcheck -S warning \
+            build.sh \
+            airootfs/root/customize_airootfs.sh \
+            airootfs/usr/local/bin/fuse \
+            airootfs/usr/local/bin/forge-install \
+            airootfs/usr/local/bin/forge-update
+
+      - name: bash -n
+        run: |
+          set -euo pipefail
+          bash -n profiledef.sh
+          bash -n build.sh
+          bash -n airootfs/root/customize_airootfs.sh
+          bash -n airootfs/usr/local/bin/fuse
+          bash -n airootfs/usr/local/bin/forge-install
+          bash -n airootfs/usr/local/bin/forge-update
+
+      - name: TOML/JSON lint
+        run: |
+          python3 - <<'PY'
+          import json, re, tomllib, sys, pathlib
+          for p in [
+              "airootfs/etc/skel/.config/starship.toml",
+              "airootfs/etc/skel/.config/helix/config.toml",
+              "airootfs/etc/skel/.config/helix/themes/forge.toml",
+              "airootfs/etc/greetd/config.toml",
+          ]:
+              tomllib.loads(pathlib.Path(p).read_text())
+              print("TOML OK", p)
+          def strip_jsonc(s):
+              out = []
+              i, n = 0, len(s)
+              in_str = in_block = in_line = esc = False
+              while i < n:
+                  c = s[i]; nxt = s[i+1] if i+1 < n else ''
+                  if in_line:
+                      if c == '\n': in_line = False; out.append(c)
+                  elif in_block:
+                      if c == '*' and nxt == '/': in_block = False; i += 1
+                  elif in_str:
+                      out.append(c)
+                      if esc: esc = False
+                      elif c == '\\': esc = True
+                      elif c == '"': in_str = False
+                  else:
+                      if c == '"': in_str = True; out.append(c)
+                      elif c == '/' and nxt == '/': in_line = True; i += 1
+                      elif c == '/' and nxt == '*': in_block = True; i += 1
+                      else: out.append(c)
+                  i += 1
+              return ''.join(out)
+          for p in [
+              "airootfs/etc/skel/.config/waybar/config.jsonc",
+              "airootfs/etc/forge/fastfetch.jsonc",
+          ]:
+              s = pathlib.Path(p).read_text()
+              s = strip_jsonc(s)
+              s = re.sub(r',\s*([}\]])', r'\1', s)
+              json.loads(s)
+              print("JSONC OK", p)
+          PY

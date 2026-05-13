@@ -1,0 +1,58 @@
+/* ~/.config/wlogout/style.css -- FORGE Linux power menu */
+
+* {
+    background-image: none;
+    box-shadow:       none;
+    font-family:      "JetBrainsMono Nerd Font", sans-serif;
+    font-weight:      600;
+    font-size:        15px;
+    transition:       background-color 180ms ease, color 180ms ease,
+                      border-color    220ms ease, transform 180ms ease;
+}
+
+window {
+    background:       rgba(13, 14, 16, 0.84);
+}
+
+button {
+    color:            #e8e6df;
+    background-color: rgba(28, 31, 37, 0.65);
+    border:           1px solid rgba(245, 158, 11, 0.25);
+    border-radius:    16px;
+    margin:           12px;
+    padding:          22px 12px;
+    background-repeat: no-repeat;
+    background-position: center 26%;
+    background-size:  36%;
+}
+
+button:hover, button:focus {
+    background-color: rgba(245, 158, 11, 0.18);
+    color:            #f59e0b;
+    border-color:     #f59e0b;
+    transform:        translateY(-2px);
+    box-shadow:       0 8px 24px rgba(245, 158, 11, 0.25);
+}
+
+button:active {
+    background-color: #f59e0b;
+    color:            #0d0e10;
+    transform:        translateY(0);
+}
+
+/* Per-button background icons -- ship with wlogout in /usr/share/wlogout/icons. */
+#lock      { background-image: image(url("/usr/share/wlogout/icons/lock.png"),       url("icons/lock.png")); }
+#logout    { background-image: image(url("/usr/share/wlogout/icons/logout.png"),     url("icons/logout.png")); }
+#suspend   { background-image: image(url("/usr/share/wlogout/icons/suspend.png"),    url("icons/suspend.png")); }
+#hibernate { background-image: image(url("/usr/share/wlogout/icons/hibernate.png"),  url("icons/hibernate.png")); }
+#reboot    { background-image: image(url("/usr/share/wlogout/icons/reboot.png"),     url("icons/reboot.png")); }
+#shutdown  { background-image: image(url("/usr/share/wlogout/icons/shutdown.png"),   url("icons/shutdown.png")); }
+
+/* Dangerous actions get a red accent on hover. */
+#shutdown:hover,
+#reboot:hover {
+    background-color: rgba(239, 68, 68, 0.18);
+    color:            #ef4444;
+    border-color:     #ef4444;
+    box-shadow:       0 8px 24px rgba(239, 68, 68, 0.25);
+}

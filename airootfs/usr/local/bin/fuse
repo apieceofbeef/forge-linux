@@ -1,0 +1,582 @@
+#!/usr/bin/env bash
+#
+# fuse -- FORGE Linux unified package manager.
+#
+# A thin orchestration layer on top of pacman, yay (AUR), flatpak and mise.
+# It exists so the end-user only has to remember one CLI:
+#
+#     fuse install ripgrep
+#     fuse upgrade
+#     fuse snapshot create "pre-kernel-update"
+#     fuse rollback latest
+#     fuse runtime install node@20
+#     fuse status
+#
+# Conventions:
+#   - exit code 0 on success, non-zero on failure
+#   - millisecond timing on every operation
+#   - amber/green colour output (disabled if not a tty or NO_COLOR is set)
+#   - snapshots live in /var/cache/forge/snapshots
+#   - operations are journalled to /var/log/forge/fuse.log
+#
+
+set -Eeuo pipefail
+shopt -s extglob
+
+################################################################################
+# Globals
+################################################################################
+readonly FUSE_VERSION="1.0.0"
+readonly FUSE_PROG="${0##*/}"
+readonly SNAPSHOT_DIR="/var/cache/forge/snapshots"
+readonly LOG_DIR="/var/log/forge"
+readonly LOG_FILE="${LOG_DIR}/fuse.log"
+readonly LOCK_FILE="/run/forge-fuse.lock"
+
+# Determine the unprivileged user we should call yay as.
+FUSE_AUR_USER="${SUDO_USER:-${USER:-forge}}"
+if [[ $FUSE_AUR_USER == "root" ]]; then
+    # Try to fall back to a sensible non-root account.
+    if id forge >/dev/null 2>&1; then
+        FUSE_AUR_USER="forge"
+    fi
+fi
+
+################################################################################
+# Colours / output
+################################################################################
+if [[ -t 1 && -z ${NO_COLOR-} ]]; then
+    C_RESET=$'\033[0m'
+    C_BOLD=$'\033[1m'
+    C_DIM=$'\033[2m'
+    C_AMBER=$'\033[38;2;245;158;11m'
+    C_AMBER_S=$'\033[38;2;249;115;22m'
+    C_GREEN=$'\033[38;2;34;197;94m'
+    C_RED=$'\033[38;2;239;68;68m'
+    C_BLUE=$'\033[38;2;59;130;246m'
+    C_YELLOW=$'\033[38;2;234;179;8m'
+    C_MUTED=$'\033[38;2;148;163;184m'
+else
+    C_RESET= C_BOLD= C_DIM= C_AMBER= C_AMBER_S= C_GREEN= C_RED= C_BLUE= C_YELLOW= C_MUTED=
+fi
+
+_log_init() {
+    install -d -m 0755 "$LOG_DIR" 2>/dev/null || true
+    touch "$LOG_FILE" 2>/dev/null || true
+    chmod 0644 "$LOG_FILE" 2>/dev/null || true
+}
+
+_log() {
+    local lvl="$1"; shift
+    _log_init
+    printf '[%s] [%s] [%s] %s\n' \
+        "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+        "$lvl" \
+        "${FUSE_AUR_USER}@$(hostname -s)" \
+        "$*" >> "$LOG_FILE" 2>/dev/null || true
+}
+
+say()   { printf '%s%s[forge]%s %s\n'   "$C_AMBER" "$C_BOLD" "$C_RESET" "$*"; _log INFO  "$*"; }
+ok()    { printf '%s%s[ ok ]%s %s\n'    "$C_GREEN" "$C_BOLD" "$C_RESET" "$*"; _log OK    "$*"; }
+warn()  { printf '%s%s[warn]%s %s\n'    "$C_YELLOW" "$C_BOLD" "$C_RESET" "$*" >&2; _log WARN  "$*"; }
+err()   { printf '%s%s[fail]%s %s\n'    "$C_RED" "$C_BOLD" "$C_RESET" "$*" >&2; _log ERROR "$*"; }
+step()  { printf '%s%s ❯%s %s\n'        "$C_AMBER" "$C_BOLD" "$C_RESET" "$*"; _log STEP  "$*"; }
+muted() { printf '%s%s%s\n'             "$C_MUTED" "$*" "$C_RESET"; }
+
+die() { err "$*"; exit 1; }
+
+trap '_on_err $?' ERR
+_on_err() {
+    local code="$1"
+    err "fuse exited with code ${code}"
+}
+
+################################################################################
+# Helpers
+################################################################################
+have() { command -v "$1" >/dev/null 2>&1; }
+
+now_ms() {
+    # bash 5+ has EPOCHREALTIME; fall back to date(1) otherwise.
+    if [[ -n ${EPOCHREALTIME-} ]]; then
+        # 1700000000.123456 -> integer ms
+        local r="$EPOCHREALTIME"
+        printf '%s' "${r%.*}${r#*.}" | head -c 13
+    else
+        date +%s%3N
+    fi
+}
+
+fmt_ms() {
+    local ms="$1"
+    if   (( ms < 1000   ));  then printf '%dms'      "$ms"
+    elif (( ms < 60000  ));  then printf '%.2fs'     "$(awk "BEGIN{print $ms/1000}")"
+    else                          printf '%dm%ds'    $((ms/60000)) $(( (ms%60000)/1000 ))
+    fi
+}
+
+with_timing() {
+    local label="$1"; shift
+    local t0 t1 rc
+    t0="$(now_ms)"
+    "$@"
+    rc=$?
+    t1="$(now_ms)"
+    if (( rc == 0 )); then
+        ok  "$label  ${C_DIM}($(fmt_ms $((t1 - t0))))${C_RESET}"
+    else
+        err "$label failed in $(fmt_ms $((t1 - t0))) (exit $rc)"
+    fi
+    return $rc
+}
+
+require_root() {
+    if (( EUID != 0 )); then
+        say "elevating with sudo"
+        exec sudo --preserve-env=FUSE_AUR_USER,NO_COLOR,SUDO_USER -- "$0" "$@"
+    fi
+}
+
+acquire_lock() {
+    exec 9>"$LOCK_FILE"
+    if ! flock -n 9; then
+        die "another fuse instance is running (lock: $LOCK_FILE)"
+    fi
+}
+
+as_aur_user() {
+    if [[ $FUSE_AUR_USER == "root" ]] || (( EUID != 0 )); then
+        "$@"
+    else
+        sudo -u "$FUSE_AUR_USER" --preserve-env=HOME,NO_COLOR -- "$@"
+    fi
+}
+
+################################################################################
+# Backends
+################################################################################
+pac()  { pacman --color=always "$@"; }
+yayc() { as_aur_user yay --color=always "$@"; }
+
+pkg_in_official() {
+    pacman -Si --print-format '%n' "$1" >/dev/null 2>&1
+}
+
+################################################################################
+# Snapshots
+#
+# A snapshot is a tarball of:
+#   - explicit package list (pacman -Qqe)
+#   - AUR/foreign package list (pacman -Qqm)
+#   - /etc snapshot (best-effort)
+#
+# Stored as /var/cache/forge/snapshots/<ts>-<label>.tar.zst
+################################################################################
+snapshot_path_for() {
+    local ts="$1" label="$2"
+    printf '%s/%s-%s.tar.zst' "$SNAPSHOT_DIR" "$ts" "${label//[^A-Za-z0-9._-]/_}"
+}
+
+snapshot_create() {
+    require_root "$@"
+    local label="${1:-auto}"
+    install -d -m 0755 "$SNAPSHOT_DIR"
+
+    local ts staging snap
+    ts="$(date -u +'%Y%m%dT%H%M%SZ')"
+    staging="$(mktemp -d -t forge-snap.XXXXXXXX)"
+    snap="$(snapshot_path_for "$ts" "$label")"
+
+    step "Capturing explicit package list"
+    pacman -Qqe > "$staging/pkglist.txt"
+
+    step "Capturing foreign (AUR) package list"
+    pacman -Qqm > "$staging/aurlist.txt" || true
+
+    step "Capturing /etc"
+    tar --warning=no-file-changed -C / -cf "$staging/etc.tar" etc 2>/dev/null || true
+
+    cat > "$staging/manifest.json" <<EOF
+{
+    "label":      "$label",
+    "timestamp":  "$ts",
+    "host":       "$(hostname -f 2>/dev/null || hostname)",
+    "kernel":     "$(uname -r)",
+    "fuse":       "$FUSE_VERSION",
+    "pkg_count":  $(wc -l < "$staging/pkglist.txt"),
+    "aur_count":  $(wc -l < "$staging/aurlist.txt")
+}
+EOF
+
+    tar --zstd -C "$staging" -cf "$snap" .
+    rm -rf -- "$staging"
+
+    ok "Snapshot saved: $snap"
+    muted "   $(du -h "$snap" | awk '{print $1}'), $(wc -l < <(echo)) entries"
+}
+
+snapshot_list() {
+    install -d -m 0755 "$SNAPSHOT_DIR"
+    shopt -s nullglob
+    local snaps=( "$SNAPSHOT_DIR"/*.tar.zst )
+    shopt -u nullglob
+
+    if (( ${#snaps[@]} == 0 )); then
+        muted "  (no snapshots in $SNAPSHOT_DIR)"
+        return
+    fi
+
+    local f name size
+    for f in "${snaps[@]}"; do
+        name="${f##*/}"
+        size="$(du -h "$f" | awk '{print $1}')"
+        printf '  %s%s%s  %s%s%s\n' \
+            "$C_AMBER" "$name" "$C_RESET" \
+            "$C_MUTED" "($size)" "$C_RESET"
+    done
+}
+
+snapshot_resolve() {
+    # Resolve a user-supplied identifier (or "latest") to an absolute path.
+    local id="$1"
+
+    if [[ $id == "latest" ]]; then
+        ls -1t "$SNAPSHOT_DIR"/*.tar.zst 2>/dev/null | head -n1
+        return
+    fi
+
+    if [[ -f $id ]]; then
+        printf '%s\n' "$id"; return
+    fi
+    if [[ -f $SNAPSHOT_DIR/$id ]]; then
+        printf '%s\n' "$SNAPSHOT_DIR/$id"; return
+    fi
+    # Fuzzy: any snapshot whose filename contains $id.
+    local match
+    match="$(ls -1t "$SNAPSHOT_DIR"/*"$id"*.tar.zst 2>/dev/null | head -n1 || true)"
+    [[ -n $match ]] && printf '%s\n' "$match"
+}
+
+snapshot_rollback() {
+    require_root "$@"
+    local target
+    target="$(snapshot_resolve "${1:-latest}")"
+    [[ -n $target ]] || die "no matching snapshot (try: fuse snapshot list)"
+
+    say "Rolling back to: ${target##*/}"
+
+    local staging
+    staging="$(mktemp -d -t forge-rollback.XXXXXXXX)"
+    tar --zstd -C "$staging" -xf "$target"
+
+    [[ -f $staging/pkglist.txt ]] || die "snapshot is missing pkglist.txt"
+
+    # Compute diff.
+    local current
+    current="$(mktemp)"
+    pacman -Qqe > "$current"
+
+    local to_install to_remove
+    to_install="$(comm -23 <(sort -u "$staging/pkglist.txt") <(sort -u "$current") || true)"
+    to_remove="$( comm -13 <(sort -u "$staging/pkglist.txt") <(sort -u "$current") || true)"
+
+    if [[ -z $to_install && -z $to_remove ]]; then
+        ok "system already matches snapshot"
+        rm -rf "$staging" "$current"; return
+    fi
+
+    if [[ -n $to_install ]]; then
+        step "Re-installing packages present in snapshot but missing now"
+        printf '%s\n' "$to_install" | column
+        # shellcheck disable=SC2086
+        pac -S --needed --noconfirm $to_install || warn "some packages could not be reinstalled"
+    fi
+    if [[ -n $to_remove ]]; then
+        step "Removing packages absent from snapshot"
+        printf '%s\n' "$to_remove" | column
+        # shellcheck disable=SC2086
+        pac -Rns --noconfirm $to_remove || warn "some packages could not be removed"
+    fi
+
+    rm -rf "$staging" "$current"
+    ok "Rollback complete"
+}
+
+################################################################################
+# Sub-commands
+################################################################################
+cmd_install() {
+    (( $# >= 1 )) || die "usage: fuse install <pkg>..."
+    require_root install "$@"
+    acquire_lock
+
+    local pkgs=("$@") official=() aur=()
+    say "Refreshing repositories"
+    with_timing "pacman -Sy" pac -Sy --noconfirm
+
+    local p
+    for p in "${pkgs[@]}"; do
+        if pkg_in_official "$p"; then
+            official+=("$p")
+        else
+            aur+=("$p")
+        fi
+    done
+
+    if (( ${#official[@]} )); then
+        step "Installing from official repos: ${official[*]}"
+        with_timing "pacman -S ${official[*]}" pac -S --needed --noconfirm "${official[@]}"
+    fi
+
+    if (( ${#aur[@]} )); then
+        have yay || die "AUR helper 'yay' is not installed; cannot install: ${aur[*]}"
+        step "Installing from AUR: ${aur[*]}"
+        with_timing "yay -S ${aur[*]}" yayc -S --needed --noconfirm "${aur[@]}"
+    fi
+}
+
+cmd_remove() {
+    (( $# >= 1 )) || die "usage: fuse remove <pkg>..."
+    require_root remove "$@"
+    acquire_lock
+    step "Removing: $*"
+    with_timing "pacman -Rns $*" pac -Rns --noconfirm "$@"
+}
+
+cmd_update() {
+    require_root update "$@"
+    acquire_lock
+    # Delegate to forge-update if available -- it does mirror refresh,
+    # snapshot, full upgrade, diff, orphan check and timing in one go.
+    if have forge-update; then
+        step "Delegating to forge-update"
+        forge-update "$@"
+        return
+    fi
+    say "Creating auto-snapshot before update"
+    snapshot_create "pre-update-$(date -u +%Y%m%dT%H%M%SZ)"
+    step "Refreshing pacman databases"
+    with_timing "pacman -Sy" pac -Sy --noconfirm
+    if have yay; then
+        step "Refreshing AUR metadata"
+        with_timing "yay -Sy" yayc -Sy --noconfirm || true
+    fi
+}
+
+cmd_upgrade() {
+    require_root upgrade "$@"
+    acquire_lock
+    if have forge-update; then
+        step "Delegating to forge-update"
+        forge-update "$@"
+        return
+    fi
+    say "Creating auto-snapshot before upgrade"
+    snapshot_create "pre-upgrade-$(date -u +%Y%m%dT%H%M%SZ)"
+
+    step "pacman -Syu"
+    with_timing "pacman -Syu" pac -Syu --noconfirm
+
+    if have yay; then
+        step "yay -Sua (AUR upgrades)"
+        with_timing "yay -Sua" yayc -Sua --noconfirm || warn "AUR upgrade reported a non-zero exit"
+    fi
+
+    if have flatpak; then
+        step "flatpak update"
+        with_timing "flatpak update" flatpak update -y || true
+    fi
+}
+
+cmd_search() {
+    (( $# >= 1 )) || die "usage: fuse search <query>"
+    local q="$1"
+    say "Official repos"
+    pac -Ss --color=always "$q" || true
+    if have yay; then
+        echo
+        say "AUR"
+        yayc -Ss --aur --color=always "$q" || true
+    fi
+    if have flatpak; then
+        echo
+        say "Flatpak"
+        flatpak search -- "$q" 2>/dev/null || true
+    fi
+}
+
+cmd_info() {
+    (( $# >= 1 )) || die "usage: fuse info <pkg>"
+    local p="$1"
+    if pkg_in_official "$p"; then
+        pac -Si --color=always "$p"
+    elif have yay; then
+        yayc -Si --color=always "$p"
+    else
+        die "package '$p' not found"
+    fi
+}
+
+cmd_list() {
+    case "${1:-explicit}" in
+        explicit|"") pac -Qe --color=always ;;
+        all)         pac -Q  --color=always ;;
+        aur|foreign) pac -Qm --color=always ;;
+        orphans)     pac -Qdtq || true ;;
+        *)           die "usage: fuse list [explicit|all|aur|orphans]" ;;
+    esac
+}
+
+cmd_clean() {
+    require_root clean "$@"
+    acquire_lock
+    step "Removing orphan packages"
+    local orphans
+    orphans="$(pacman -Qdtq || true)"
+    if [[ -n $orphans ]]; then
+        # shellcheck disable=SC2086
+        pac -Rns --noconfirm $orphans || warn "could not remove some orphans"
+    else
+        muted "no orphans found"
+    fi
+
+    step "Cleaning pacman cache (keeping last 2 versions)"
+    if have paccache; then
+        with_timing "paccache -rk2" paccache -rk2
+    else
+        with_timing "pacman -Sc" pac -Sc --noconfirm
+    fi
+
+    if have yay; then
+        step "Cleaning yay caches"
+        with_timing "yay -Sc"  yayc -Sc --noconfirm || true
+    fi
+
+    if have flatpak; then
+        step "Removing unused flatpak runtimes"
+        with_timing "flatpak uninstall --unused" flatpak uninstall --unused -y || true
+    fi
+
+    if have journalctl; then
+        step "Vacuuming journal to last 200M"
+        journalctl --vacuum-size=200M || true
+    fi
+}
+
+cmd_runtime() {
+    have mise || die "mise is not installed; cannot manage runtimes"
+    if (( $# == 0 )); then mise list; return; fi
+    case "$1" in
+        list|ls)        shift; as_aur_user mise list "$@" ;;
+        install|i)      shift; as_aur_user mise install "$@" ;;
+        use)            shift; as_aur_user mise use "$@" ;;
+        global)         shift; as_aur_user mise use --global "$@" ;;
+        uninstall|rm)   shift; as_aur_user mise uninstall "$@" ;;
+        upgrade|up)     shift; as_aur_user mise upgrade "$@" ;;
+        *)              as_aur_user mise "$@" ;;
+    esac
+}
+
+cmd_status() {
+    local kernel cpu mem disk uptime pkgs aurpkgs load
+    kernel="$(uname -r)"
+    cpu="$(awk -F: '/model name/ {print $2; exit}' /proc/cpuinfo | sed 's/^ *//')"
+    mem="$(free -h --si | awk '/^Mem:/ {printf "%s used / %s total", $3, $2}')"
+    disk="$(df -h / | awk 'NR==2 {printf "%s used / %s total (%s)", $3, $2, $5}')"
+    uptime="$(uptime -p | sed 's/^up //')"
+    pkgs="$(pacman -Qq | wc -l)"
+    aurpkgs="$(pacman -Qqm 2>/dev/null | wc -l)"
+    load="$(awk '{printf "%s %s %s", $1, $2, $3}' /proc/loadavg)"
+
+    cat <<EOF
+${C_AMBER}${C_BOLD}╭─ FORGE status ────────────────────────────────────╮${C_RESET}
+${C_AMBER}│${C_RESET}  Kernel    : ${C_GREEN}${kernel}${C_RESET}
+${C_AMBER}│${C_RESET}  CPU       : ${cpu}
+${C_AMBER}│${C_RESET}  Load avg  : ${load}
+${C_AMBER}│${C_RESET}  Memory    : ${mem}
+${C_AMBER}│${C_RESET}  Disk (/)  : ${disk}
+${C_AMBER}│${C_RESET}  Uptime    : ${uptime}
+${C_AMBER}│${C_RESET}  Packages  : ${C_AMBER}${pkgs}${C_RESET} (${aurpkgs} from AUR)
+${C_AMBER}│${C_RESET}  fuse      : v${FUSE_VERSION}
+${C_AMBER}${C_BOLD}╰───────────────────────────────────────────────────╯${C_RESET}
+EOF
+}
+
+cmd_snapshot() {
+    local sub="${1:-list}"; shift || true
+    case "$sub" in
+        create|new)    snapshot_create "${1:-manual}" ;;
+        list|ls)       snapshot_list ;;
+        path)          snapshot_resolve "${1:-latest}" ;;
+        rm|remove)     require_root snapshot rm "$@"; rm -i -- "$(snapshot_resolve "${1:-}")" ;;
+        *)             die "usage: fuse snapshot {create|list|rm|path} [label]" ;;
+    esac
+}
+
+cmd_rollback() { snapshot_rollback "${1:-latest}"; }
+
+cmd_help() {
+    cat <<EOF
+${C_AMBER}${C_BOLD}fuse${C_RESET} v${FUSE_VERSION} -- FORGE Linux unified package manager
+
+${C_BOLD}Packages${C_RESET}
+  install <pkg>...        Install package(s) (official + AUR fallback)
+  remove  <pkg>...        Remove package(s) and orphaned deps
+  update                  Refresh databases (auto-snapshots first)
+  upgrade                 Upgrade everything (auto-snapshots first)
+  search  <query>         Search across pacman + AUR + flatpak
+  info    <pkg>           Show package details
+  list    [explicit|all|aur|orphans]
+  clean                   Remove orphans, prune caches, vacuum journal
+
+${C_BOLD}Snapshots${C_RESET}
+  snapshot create [label] Capture current package state to a tarball
+  snapshot list           List available snapshots
+  snapshot path [id]      Resolve a snapshot identifier to a path
+  rollback   [id|latest]  Restore packages from a snapshot
+
+${C_BOLD}Runtimes (mise)${C_RESET}
+  runtime install <runtime[@ver]>
+  runtime use     <runtime[@ver]>
+  runtime list
+
+${C_BOLD}System${C_RESET}
+  status                  Kernel, CPU, memory, disk, uptime, pkg count
+  help                    This help
+  version                 Print fuse version
+
+Snapshots are stored in ${C_MUTED}${SNAPSHOT_DIR}${C_RESET}.
+Operations are logged to ${C_MUTED}${LOG_FILE}${C_RESET}.
+EOF
+}
+
+################################################################################
+# Entry
+################################################################################
+main() {
+    local cmd="${1:-help}"
+    [[ $# -ge 1 ]] && shift || true
+    case "$cmd" in
+        install|in|i)         cmd_install   "$@" ;;
+        remove|rm|uninstall)  cmd_remove    "$@" ;;
+        update|sync)          cmd_update    "$@" ;;
+        upgrade|up)           cmd_upgrade   "$@" ;;
+        search|s|find)        cmd_search    "$@" ;;
+        info|show)            cmd_info      "$@" ;;
+        list|ls|l)            cmd_list      "$@" ;;
+        clean)                cmd_clean     "$@" ;;
+        snapshot|snap)        cmd_snapshot  "$@" ;;
+        rollback|restore)     cmd_rollback  "$@" ;;
+        runtime|rt)           cmd_runtime   "$@" ;;
+        status|st)            cmd_status    "$@" ;;
+        help|-h|--help)       cmd_help ;;
+        version|-V|--version) printf 'fuse %s\n' "$FUSE_VERSION" ;;
+        *)
+            err "unknown subcommand: $cmd"
+            cmd_help
+            exit 2
+            ;;
+    esac
+}
+
+main "$@"

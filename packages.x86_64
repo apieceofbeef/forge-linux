@@ -1,0 +1,308 @@
+# FORGE Linux package list (x86_64)
+#
+# Built on top of the Arch Linux "releng" profile baseline, trimmed to the
+# packages FORGE actually ships.  Sorted alphabetically within sections.
+#
+# Conventions:
+#   - one package per line, no version pins
+#   - blank lines and `#` lines are ignored by mkarchiso
+#   - any inline `# VERIFY` comment means "double-check this is in [core]/
+#     [extra]/[multilib] today — it has moved or been renamed in the past".
+#     Drop the comment once you've confirmed availability.
+
+##############################################################################
+# Base system
+##############################################################################
+amd-ucode
+base
+base-devel
+intel-ucode
+linux-firmware
+linux-firmware-marvell                # VERIFY [extra] firmware drop-in
+linux-zen
+linux-zen-headers
+mkinitcpio
+mkinitcpio-archiso
+mkinitcpio-nfs-utils
+
+##############################################################################
+# Boot loaders / installer plumbing
+##############################################################################
+arch-install-scripts
+archinstall
+edk2-shell
+efibootmgr
+grub
+limine                                # VERIFY [extra] alt bootloader
+memtest86+
+memtest86+-efi
+syslinux
+
+##############################################################################
+# Filesystems, disks, RAID, LVM
+##############################################################################
+btrfs-progs
+cryptsetup
+dosfstools
+e2fsprogs
+exfatprogs
+f2fs-tools
+fatresize
+gpart
+gptfdisk
+lvm2
+mdadm
+nilfs-utils
+ntfs-3g
+parted
+snapper
+udftools
+xfsprogs
+
+##############################################################################
+# Networking stack
+##############################################################################
+bind
+bridge-utils
+broadcom-wl
+dhclient
+dhcpcd
+dialog
+dmraid
+dnsmasq
+ethtool
+fsarchiver
+gnu-netcat
+iw
+iwd
+modemmanager
+mtr
+nbd
+ndisc6
+networkmanager
+nfs-utils
+nmap
+openconnect
+openssh
+openvpn
+ppp
+rp-pppoe
+rsync
+sshfs
+tcpdump
+usb_modeswitch
+usbutils
+vpnc
+wget
+wireless-regdb
+wireless_tools
+wpa_supplicant
+wvdial
+xl2tpd
+
+##############################################################################
+# Security / hardening
+##############################################################################
+apparmor
+arch-audit
+clamav
+gnupg
+pam-u2f
+sudo
+ufw
+
+##############################################################################
+# Core CLI tooling (developer experience)
+##############################################################################
+bash
+bash-completion
+bat
+btop
+dmidecode
+ed
+eza
+fastfetch
+fd
+file
+fzf
+git
+git-lfs
+helix
+htop
+hyperfine
+jq
+just
+lazygit
+less
+lsb-release
+lsof
+man-db
+man-pages
+mc
+nano
+pacman-contrib                        # checkupdates, paccache, pacdiff, ...
+pkgfile
+ranger
+reflector
+ripgrep
+screen
+smartmontools
+starship
+strace
+sysstat
+tealdeer
+tmux
+tree
+unzip
+vim
+which
+yq
+zellij
+zip
+zoxide
+zsh
+zsh-autosuggestions
+zsh-completions
+zsh-history-substring-search
+zsh-syntax-highlighting
+
+##############################################################################
+# Desktop: Hyprland + Wayland stack
+##############################################################################
+brightnessctl
+cliphist
+dunst
+foot
+ghostty                               # VERIFY [extra] (added 2024)
+greetd                                # VERIFY [extra]
+greetd-tuigreet                       # VERIFY [extra]; falls back to `tuigreet`
+grim
+hypridle
+hyprland
+hyprlock
+hyprpaper
+hyprpicker
+hyprshot
+mako
+network-manager-applet
+nwg-look                              # VERIFY [extra] GTK theme picker
+polkit
+polkit-kde-agent
+qt5-wayland
+qt6-wayland
+rofi-wayland
+slurp
+swappy
+swaybg
+swayidle
+swaylock
+swww                                  # VERIFY [extra]
+waybar
+wf-recorder
+wireplumber
+wl-clipboard
+wlogout
+wlroots
+xdg-desktop-portal
+xdg-desktop-portal-hyprland
+xdg-user-dirs
+xdg-utils
+xorg-xwayland
+
+##############################################################################
+# Fonts
+##############################################################################
+noto-fonts
+noto-fonts-cjk
+noto-fonts-emoji
+noto-fonts-extra
+ttf-cascadia-code-nerd
+ttf-dejavu
+ttf-fira-code
+ttf-firacode-nerd
+ttf-jetbrains-mono
+ttf-jetbrains-mono-nerd
+ttf-liberation
+ttf-nerd-fonts-symbols
+ttf-nerd-fonts-symbols-mono
+
+##############################################################################
+# Audio / multimedia
+##############################################################################
+alsa-utils
+gst-plugin-pipewire
+gstreamer
+mpv
+pavucontrol
+pipewire
+pipewire-alsa
+pipewire-jack
+pipewire-pulse
+pipewire-zeroconf
+playerctl
+sof-firmware
+
+##############################################################################
+# Theming / look-and-feel
+##############################################################################
+python-pywal                          # VERIFY [extra] (some mirrors still ship `pywal`)
+
+##############################################################################
+# Developer toolchains and runtimes
+##############################################################################
+clang
+cmake
+docker
+docker-buildx
+docker-compose
+gcc
+gdb
+go
+lldb
+llvm
+make
+meson
+mise                                  # VERIFY [extra] (added 2024)
+nodejs
+npm
+pkgconf
+podman
+python
+python-pip
+python-pipx
+python-poetry
+python-setuptools
+python-virtualenv
+rust
+rust-analyzer
+shellcheck
+shfmt
+sqlite
+yarn
+
+##############################################################################
+# Containers / virt
+##############################################################################
+buildah
+qemu-base
+qemu-guest-agent
+skopeo
+virt-what
+
+##############################################################################
+# Backup / data tools
+##############################################################################
+borg
+restic
+
+##############################################################################
+# Live-ISO convenience
+##############################################################################
+arch-wiki-lite
+archiso
+b43-fwcutter
+darkhttpd
+ddrescue
+hdparm
+nss-mdns
+testdisk

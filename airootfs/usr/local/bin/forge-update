@@ -1,0 +1,301 @@
+#!/usr/bin/env bash
+#
+# forge-update -- one-shot update orchestrator for FORGE Linux.
+#
+# Called by `fuse update` (and runnable standalone), this script:
+#     1. picks the fastest 10 Arch mirrors with reflector
+#     2. snapshots the current package set via `fuse snapshot create`
+#     3. runs pacman -Syu (official) + yay -Sua (AUR) + flatpak update + mise upgrade
+#     4. shows a diff of added/removed/upgraded packages
+#     5. checks for new orphans
+#     6. prints total wall-clock time
+#
+# Usage:
+#     sudo forge-update                   # default: best 10 mirrors by speed
+#     sudo forge-update --country=Germany # restrict to specific country
+#     sudo forge-update --dry-run         # planning only, no changes
+#     sudo forge-update --skip-aur        # skip yay -Sua
+#     sudo forge-update --skip-flatpak    # skip flatpak update
+
+set -Eeuo pipefail
+shopt -s extglob
+
+readonly PROG="${0##*/}"
+readonly MIRROR_BACKUP="/etc/pacman.d/mirrorlist.bak.$(date -u +%Y%m%dT%H%M%SZ)"
+readonly LOG_DIR="/var/log/forge"
+readonly LOG_FILE="${LOG_DIR}/forge-update.log"
+
+COUNTRY=""
+DRY_RUN=0
+SKIP_AUR=0
+SKIP_FLATPAK=0
+SKIP_MISE=0
+TOP_MIRRORS=10
+
+################################################################################
+# CLI
+################################################################################
+while (( $# )); do
+    case "$1" in
+        --country=*)    COUNTRY="${1#*=}"; shift ;;
+        --country)      COUNTRY="$2";       shift 2 ;;
+        --top=*)        TOP_MIRRORS="${1#*=}"; shift ;;
+        --top)          TOP_MIRRORS="$2";   shift 2 ;;
+        --dry-run|-n)   DRY_RUN=1;          shift ;;
+        --skip-aur)     SKIP_AUR=1;         shift ;;
+        --skip-flatpak) SKIP_FLATPAK=1;     shift ;;
+        --skip-mise)    SKIP_MISE=1;        shift ;;
+        -h|--help)
+            sed -n '3,21p' "$0" | sed 's/^# \{0,1\}//'
+            exit 0
+            ;;
+        *) echo "unknown arg: $1" >&2; exit 2 ;;
+    esac
+done
+
+################################################################################
+# Colour / log helpers (same palette as the rest of FORGE)
+################################################################################
+if [[ -t 1 && -z ${NO_COLOR-} ]]; then
+    C_RESET=$'\033[0m'; C_BOLD=$'\033[1m'; C_DIM=$'\033[2m'
+    C_AMBER=$'\033[38;2;245;158;11m'; C_GREEN=$'\033[38;2;34;197;94m'
+    C_RED=$'\033[38;2;239;68;68m';   C_BLUE=$'\033[38;2;59;130;246m'
+    C_YELLOW=$'\033[38;2;234;179;8m'; C_MUTED=$'\033[38;2;148;163;184m'
+else
+    C_RESET= C_BOLD= C_DIM= C_AMBER= C_GREEN= C_RED= C_BLUE= C_YELLOW= C_MUTED=
+fi
+
+_log_init() {
+    install -d -m 0755 "$LOG_DIR"
+    touch "$LOG_FILE"
+}
+log() { _log_init; printf '[%s] %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$*" >>"$LOG_FILE"; }
+
+say()  { printf '%s%s[forge-update]%s %s\n' "$C_AMBER" "$C_BOLD" "$C_RESET" "$*"; log "INFO  $*"; }
+ok()   { printf '%s%s[      ok    ]%s %s\n' "$C_GREEN" "$C_BOLD" "$C_RESET" "$*"; log "OK    $*"; }
+warn() { printf '%s%s[     warn   ]%s %s\n' "$C_YELLOW" "$C_BOLD" "$C_RESET" "$*" >&2; log "WARN  $*"; }
+err()  { printf '%s%s[     fail   ]%s %s\n' "$C_RED" "$C_BOLD" "$C_RESET" "$*" >&2; log "ERROR $*"; }
+step() { printf '\n%s%s ❯ %s%s\n'      "$C_AMBER" "$C_BOLD" "$*" "$C_RESET"; log "STEP  $*"; }
+die()  { err "$*"; exit 1; }
+
+trap '_on_exit $?' EXIT
+_on_exit() {
+    local rc="$1"
+    if (( rc != 0 )); then
+        err "forge-update exited with code $rc; see $LOG_FILE"
+    fi
+}
+
+################################################################################
+# Helpers
+################################################################################
+have() { command -v "$1" >/dev/null 2>&1; }
+
+now_ms() {
+    if [[ -n ${EPOCHREALTIME-} ]]; then
+        local r="$EPOCHREALTIME"
+        printf '%s' "${r%.*}${r#*.}" | head -c 13
+    else
+        date +%s%3N
+    fi
+}
+
+fmt_dur() {
+    local ms="$1"
+    if   (( ms < 1000  )); then printf '%dms' "$ms"
+    elif (( ms < 60000 )); then awk -v m="$ms" 'BEGIN{printf "%.2fs", m/1000}'
+    else                          printf '%dm%ds' $((ms/60000)) $(( (ms%60000)/1000 ))
+    fi
+}
+
+require_root() {
+    if (( EUID != 0 )); then
+        say "elevating with sudo"
+        exec sudo --preserve-env=NO_COLOR -- "$0" "$@"
+    fi
+}
+
+aur_user() {
+    if [[ -n ${SUDO_USER-} && $SUDO_USER != root ]]; then
+        printf '%s\n' "$SUDO_USER"
+    elif id forge >/dev/null 2>&1; then
+        printf 'forge\n'
+    else
+        printf 'nobody\n'
+    fi
+}
+
+as_user() {
+    local user="$1"; shift
+    sudo -u "$user" --preserve-env=NO_COLOR -- "$@"
+}
+
+run_or_dry() {
+    if (( DRY_RUN )); then
+        printf '%s[dry-run]%s %s\n' "$C_MUTED" "$C_RESET" "$*"
+        log "DRY   $*"
+        return 0
+    fi
+    log "EXEC  $*"
+    "$@"
+}
+
+################################################################################
+# Steps
+################################################################################
+preflight() {
+    [[ -f /etc/arch-release || -f /etc/os-release ]] || warn "non-Arch host?"
+    have pacman || die "pacman not found"
+    require_root "$@"
+}
+
+reflect_mirrors() {
+    step "Selecting the ${TOP_MIRRORS} fastest mirrors with reflector"
+    if ! have reflector; then
+        warn "reflector not installed; skipping mirror refresh"
+        return
+    fi
+
+    local args=(
+        --save /etc/pacman.d/mirrorlist
+        --protocol https
+        --age 12
+        --latest 40
+        --sort rate
+        --number "$TOP_MIRRORS"
+        --download-timeout 5
+    )
+    if [[ -n $COUNTRY ]]; then
+        args+=(--country "$COUNTRY")
+    fi
+
+    cp -a /etc/pacman.d/mirrorlist "$MIRROR_BACKUP" || true
+    run_or_dry reflector "${args[@]}"
+    ok "Updated mirrorlist (backup: $MIRROR_BACKUP)"
+}
+
+take_snapshot() {
+    step "Creating snapshot before update"
+    if have fuse; then
+        run_or_dry fuse snapshot create "pre-update-$(date -u +%Y%m%dT%H%M%SZ)"
+    else
+        warn "fuse not installed; skipping snapshot (rollback won't be available)"
+    fi
+}
+
+capture_state_to() {
+    local out="$1"
+    pacman -Q | sort > "$out"
+}
+
+run_pacman_upgrade() {
+    step "pacman -Syu"
+    run_or_dry pacman -Syu --noconfirm --color=always
+}
+
+run_yay_upgrade() {
+    (( SKIP_AUR )) && { warn "AUR upgrade skipped (--skip-aur)"; return; }
+    if ! have yay; then
+        warn "yay not installed; skipping AUR upgrade"
+        return
+    fi
+    local user; user="$(aur_user)"
+    step "yay -Sua (as ${user})"
+    run_or_dry as_user "$user" yay -Sua --noconfirm --color always || warn "yay returned non-zero"
+}
+
+run_flatpak_upgrade() {
+    (( SKIP_FLATPAK )) && { warn "flatpak upgrade skipped"; return; }
+    have flatpak || { warn "flatpak not installed; skipping"; return; }
+    step "flatpak update"
+    run_or_dry flatpak update -y || true
+}
+
+run_mise_upgrade() {
+    (( SKIP_MISE )) && { warn "mise upgrade skipped"; return; }
+    have mise || return
+    local user; user="$(aur_user)"
+    step "mise upgrade (as ${user})"
+    run_or_dry as_user "$user" mise upgrade || true
+}
+
+print_diff() {
+    local before="$1" after="$2"
+    step "Package change summary"
+
+    local added removed upgraded
+    added="$(  comm -13 <(awk '{print $1}' "$before") <(awk '{print $1}' "$after"))"
+    removed="$(comm -23 <(awk '{print $1}' "$before") <(awk '{print $1}' "$after"))"
+
+    upgraded="$(
+        join -j1 \
+            <(awk '{print $1" "$2}' "$before" | sort) \
+            <(awk '{print $1" "$2}' "$after"  | sort) \
+            | awk '$2 != $3 {print $1"  "$2" -> "$3}'
+    )"
+
+    if [[ -z $added && -z $removed && -z $upgraded ]]; then
+        ok "No package changes."
+        return
+    fi
+
+    if [[ -n $added ]]; then
+        printf '\n  %s+ added (%d):%s\n' "$C_GREEN" "$(printf '%s\n' "$added" | wc -l)" "$C_RESET"
+        printf '%s\n' "$added" | sed 's/^/    /'
+    fi
+    if [[ -n $removed ]]; then
+        printf '\n  %s- removed (%d):%s\n' "$C_RED" "$(printf '%s\n' "$removed" | wc -l)" "$C_RESET"
+        printf '%s\n' "$removed" | sed 's/^/    /'
+    fi
+    if [[ -n $upgraded ]]; then
+        printf '\n  %s~ upgraded (%d):%s\n' "$C_AMBER" "$(printf '%s\n' "$upgraded" | wc -l)" "$C_RESET"
+        printf '%s\n' "$upgraded" | sed 's/^/    /'
+    fi
+}
+
+orphan_check() {
+    step "Checking for new orphans"
+    local orphans
+    orphans="$(pacman -Qdtq 2>/dev/null || true)"
+    if [[ -z $orphans ]]; then
+        ok "No orphan packages."
+    else
+        warn "Orphans detected ($(printf '%s\n' "$orphans" | wc -l)):"
+        printf '%s\n' "$orphans" | sed "s/^/    /"
+        printf '%s remove with:%s sudo pacman -Rns %s\n' "$C_MUTED" "$C_RESET" "$(printf '%s ' "$orphans")"
+    fi
+}
+
+################################################################################
+# Main
+################################################################################
+main() {
+    preflight "$@"
+
+    local t0 t1 before after
+    t0="$(now_ms)"
+    before="$(mktemp)"
+    after="$(mktemp)"
+    trap 'rm -f "$before" "$after"; _on_exit $?' EXIT
+
+    say "FORGE update starting$([[ $DRY_RUN -eq 1 ]] && echo " (dry-run)")"
+    capture_state_to "$before"
+
+    reflect_mirrors
+    take_snapshot
+    run_pacman_upgrade
+    run_yay_upgrade
+    run_flatpak_upgrade
+    run_mise_upgrade
+
+    capture_state_to "$after"
+    print_diff "$before" "$after"
+    orphan_check
+
+    t1="$(now_ms)"
+    printf '\n%s%s━━━ forge-update complete in %s ━━━%s\n' \
+        "$C_GREEN" "$C_BOLD" "$(fmt_dur $((t1 - t0)))" "$C_RESET"
+    log  "DONE  forge-update finished in $(fmt_dur $((t1 - t0)))"
+}
+
+main "$@"
