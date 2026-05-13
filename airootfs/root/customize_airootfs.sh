@@ -25,7 +25,11 @@ hwclock --systohc --utc || true
 sed -i 's/^#\(en_US\.UTF-8 UTF-8\)/\1/' /etc/locale.gen
 locale-gen
 printf 'LANG=en_US.UTF-8\n' > /etc/locale.conf
-printf 'KEYMAP=us\nFONT=ter-v18n\n' > /etc/vconsole.conf
+# Only KEYMAP is required.  Setting FONT= to a font that isn't installed
+# on the live image (e.g. terminus' ter-v* faces) causes mkinitcpio's
+# sd-vconsole hook to abort with a non-zero exit code.  Leaving FONT
+# unset uses the kernel's built-in 8x16 font, which is fine for a TTY.
+printf 'KEYMAP=us\n' > /etc/vconsole.conf
 
 printf 'forge\n' > /etc/hostname
 cat > /etc/hosts <<'EOF'
@@ -205,17 +209,19 @@ forge ALL=(ALL) NOPASSWD: /usr/bin/pacman
 EOF
     chmod 0440 /etc/sudoers.d/99-forge-yay-build
 
-    if build_yay; then
-        log "yay installed successfully"
+    if build_yay && [[ -x /usr/bin/yay ]]; then
+        log "yay installed successfully (/usr/bin/yay)"
 
         ##############################################################
         # AUR packages required by FORGE (not in [core]/[extra]/AUR-
         # tagged in our manifest).  yay is invoked as the unprivileged
         # forge user; the temporary sudoers rule above lets it call
         # pacman non-interactively.  --needed avoids reinstalling.
+        # We call yay by absolute path so sudo's reset PATH doesn't
+        # surprise us if /usr/bin happens to be late in secure_path.
         ##############################################################
         log "Installing AUR packages via yay"
-        if ! sudo -u forge yay -S --noconfirm --needed \
+        if ! sudo -u forge -H /usr/bin/yay -S --noconfirm --needed \
                 ghostty greetd greetd-tuigreet nwg-look swww \
                 wlogout python-pywal mise wlroots; then
             log "WARNING: yay -S for AUR packages failed (some may be unavailable)"
@@ -230,7 +236,7 @@ EOF
                 log "WARNING: could not enable greetd.service"
         fi
     else
-        log "WARNING: yay build failed -- continuing without it"
+        log "WARNING: yay build failed or /usr/bin/yay missing -- continuing without AUR packages"
     fi
 
     rm -f /etc/sudoers.d/99-forge-yay-build
