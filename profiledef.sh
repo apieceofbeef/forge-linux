@@ -26,8 +26,10 @@ airootfs_image_tool_options=(
     '-comp' 'zstd'
     '-Xcompression-level' '22'
     '-b' '1M'
-    '-Xbcj' 'x86'
 )
+# NOTE: -Xbcj is an XZ-only filter; mksquashfs rejects it when -comp is
+# zstd.  If you switch back to xz, restore -Xbcj x86 to recover ~5-10%
+# additional compression on i386 instruction streams.
 bootstrap_tarball_compression=(zstd -c -T0 --auto-threads=logical --long -19)
 
 declare -A file_permissions=(
